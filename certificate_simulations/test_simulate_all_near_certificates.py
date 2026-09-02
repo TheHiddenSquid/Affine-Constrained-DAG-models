@@ -1,16 +1,36 @@
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from certificate_simulations.simulate_all_near_certificates import (
-    C_0,
-    feasible_reference_gap,
-    likelihood_gap,
-    positive_rank_one_certificate,
-    projection_statistic,
-    proposition_4_certificate,
-)
-from solver import solve_all_near_feasibility_lp
+if __package__:
+    from .simulate_all_near_certificates import (
+        C_0,
+        S_0,
+        positive_rank_one_certificate,
+        projection_certificate,
+        projection_likelihood_gap,
+        projection_statistic,
+        proposition_4_certificate,
+        save_results_csv,
+        SimulationResult,
+        s_certificate,
+    )
+else:
+    from simulate_all_near_certificates import (
+        C_0,
+        S_0,
+        positive_rank_one_certificate,
+        projection_certificate,
+        projection_likelihood_gap,
+        projection_statistic,
+        proposition_4_certificate,
+        save_results_csv,
+        SimulationResult,
+        s_certificate,
+    )
 
 
 class Proposition4CertificateTests(unittest.TestCase):
@@ -61,32 +81,74 @@ class ProjectionStatisticTests(unittest.TestCase):
 
         self.assertAlmostEqual(projection_statistic(A, b, r), 0.0)
 
+    def test_s_certificate_uses_the_sharp_threshold(self):
+        A = np.array([[1.0]])
+        r = np.array([1.0])
 
-class FeasibleReferenceGapTests(unittest.TestCase):
-    def test_accepts_an_unconstrained_variance_point(self):
+        self.assertAlmostEqual(projection_statistic(A, [0.9], r), 0.01)
+        self.assertLess(projection_statistic(A, [0.9], r), S_0)
+        self.assertTrue(s_certificate(A, [0.9], r))
+        self.assertFalse(s_certificate(A, [2.0], r))
+
+
+class ProjectionCertificateTests(unittest.TestCase):
+    def test_accepts_when_the_projection_is_the_unconstrained_point(self):
         A = np.array([[1.0]])
         b = np.array([1.0])
         r = np.array([1.0])
-        lp_result = solve_all_near_feasibility_lp(A, b, r)
 
-        self.assertLess(feasible_reference_gap(A, b, r, lp_result), C_0)
+        self.assertAlmostEqual(projection_likelihood_gap(A, b, r), 0.0)
+        self.assertTrue(projection_certificate(A, b, r))
 
-    def test_uses_projection_when_the_lp_point_has_too_large_a_gap(self):
-        A = np.array([[1.6650341074, 0.0063458350, -0.4378336764]])
-        b = np.array([0.5366836913])
-        r = np.ones(3)
-        lp_result = solve_all_near_feasibility_lp(A, b, r)
-
-        self.assertGreater(likelihood_gap(lp_result.x), C_0)
-        self.assertLess(feasible_reference_gap(A, b, r, lp_result), C_0)
-
-    def test_rejects_when_no_reference_has_gap_below_the_barrier(self):
+    def test_rejects_when_the_projection_gap_exceeds_the_barrier(self):
         A = np.array([[1.0]])
         b = np.array([3.0])
         r = np.array([1.0])
-        lp_result = solve_all_near_feasibility_lp(A, b, r)
 
-        self.assertGreaterEqual(feasible_reference_gap(A, b, r, lp_result), C_0)
+        self.assertGreaterEqual(projection_likelihood_gap(A, b, r), C_0)
+        self.assertFalse(projection_certificate(A, b, r))
+
+    def test_rejects_a_nonpositive_projection(self):
+        A = np.array([[1.0]])
+        b = np.array([0.0])
+        r = np.array([1.0])
+
+        self.assertEqual(projection_likelihood_gap(A, b, r), np.inf)
+        self.assertFalse(projection_certificate(A, b, r))
+
+
+class ResultsCsvTests(unittest.TestCase):
+    @staticmethod
+    def result(mode):
+        return SimulationResult(
+            fitted_graph=mode,
+            p=5,
+            n=25,
+            trials=10,
+            ols_successes=10,
+            strict_lp_successes=9,
+            tn_certificate_successes=8,
+            proposition_4_successes=7,
+            either_certificate_successes=9,
+            certificate_disagreements=1,
+        )
+
+    def test_one_csv_contains_fitted_and_unfitted_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "results.csv"
+            save_results_csv(
+                {
+                    "true": [self.result("true")],
+                    "random": [self.result("random")],
+                },
+                output_path,
+            )
+
+            with output_path.open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+
+        self.assertEqual([row["fitted_graph"] for row in rows], ["true", "random"])
+        self.assertNotIn("old_reference_gap_successes", rows[0])
 
 
 if __name__ == "__main__":

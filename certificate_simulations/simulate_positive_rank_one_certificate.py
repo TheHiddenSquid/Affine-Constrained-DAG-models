@@ -22,18 +22,31 @@ from __future__ import annotations
 import argparse
 import csv
 import random
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Keep imports stable whether this file is run directly or through ``-m``.
+SOLVER_DIRECTORY = Path(__file__).resolve().parent.parent
+if str(SOLVER_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SOLVER_DIRECTORY))
+
 import utils
-from .simulate_all_near_certificates import (
-    positive_rank_one_certificate,
-    proposition_4_certificate,
-    wilson_interval,
-)
+if __package__:
+    from .simulate_all_near_certificates import (
+        positive_rank_one_certificate,
+        proposition_4_certificate,
+        wilson_interval,
+    )
+else:
+    from simulate_all_near_certificates import (
+        positive_rank_one_certificate,
+        proposition_4_certificate,
+        wilson_interval,
+    )
 from solver import (
     compute_ols_estimates,
     solve_all_near_feasibility_lp,

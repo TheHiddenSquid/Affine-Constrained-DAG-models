@@ -2,9 +2,14 @@ import unittest
 
 import numpy as np
 
-from certificate_simulations.simulate_positive_rank_one_certificate import (
-    generate_positive_rank_one_constraint,
-)
+if __package__:
+    from .simulate_positive_rank_one_certificate import (
+        generate_positive_rank_one_constraint,
+    )
+else:
+    from simulate_positive_rank_one_certificate import (
+        generate_positive_rank_one_constraint,
+    )
 
 
 class PositiveConstraintGenerationTests(unittest.TestCase):
