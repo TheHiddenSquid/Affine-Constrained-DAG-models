@@ -59,14 +59,49 @@ def projection_certificate(A, b, r):
     return bool(projection_likelihood_gap(A, b, r) < C_0)
 
 
-def proposition_4_certificate(A, b, r):
-    """Evaluate the rank-one discrepancy certificate from Proposition 4.
+def nonnegative_dual_certificate(A, lagrange_multipliers, tolerance=1e-9):
+    """Evaluate the nonnegative-dual certificate from Section 7.3.
+
+    The caller must supply the equality-constraint multipliers of a positive
+    feasible KKT point using the convention
+
+        gradient(F)(omega) + A.T @ lagrange_multipliers = 0.
+
+    The certificate passes when ``A.T @ lagrange_multipliers`` is
+    coordinatewise nonnegative.  ``tolerance`` permits small negative values
+    caused by numerical optimization error.
+    """
+
+    A = np.asarray(A, dtype=float)
+    multipliers = np.asarray(lagrange_multipliers, dtype=float)
+    if A.ndim != 2:
+        raise ValueError("A must be a two-dimensional matrix")
+    if multipliers.ndim == 0:
+        multipliers = multipliers.reshape(1)
+    elif multipliers.ndim == 2 and 1 in multipliers.shape:
+        multipliers = multipliers.reshape(-1)
+    elif multipliers.ndim != 1:
+        raise ValueError("lagrange_multipliers must be a vector")
+    if multipliers.size != A.shape[0]:
+        raise ValueError(
+            "A and lagrange_multipliers must have the same number of rows"
+        )
+    if not np.all(np.isfinite(A)) or not np.all(np.isfinite(multipliers)):
+        raise ValueError("A and lagrange_multipliers must contain finite values")
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("tolerance must be finite and nonnegative")
+
+    return bool(np.all(A.T @ multipliers >= -tolerance))
+
+
+def rank_one_discrepancy_certificate(A, b, r):
+    """Evaluate the rank-one discrepancy certificate.
 
     The condition is
 
         abs(a.T @ r - b) < min(abs(a_i) * r_i for a_i != 0).
 
-    Proposition 4 does not directly apply to a constraint matrix with more
+    The certificate does not directly apply to a constraint matrix with more
     than one independent row, so this function rejects such input.
     """
 
@@ -74,7 +109,10 @@ def proposition_4_certificate(A, b, r):
     b = np.asarray(b, dtype=float).reshape(-1)
     r = np.asarray(r, dtype=float)
     if A.ndim != 2 or A.shape[0] != 1:
-        raise ValueError("Proposition 4 requires exactly one constraint row")
+        raise ValueError(
+            "The rank-one discrepancy certificate requires exactly one "
+            "constraint row"
+        )
     if r.ndim != 1 or A.shape[1] != r.size:
         raise ValueError("A and r have incompatible dimensions")
     if b.shape != (1,):

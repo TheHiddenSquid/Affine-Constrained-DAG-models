@@ -9,8 +9,9 @@ active coordinates.  It compares
 * the positive rank-one certificate; and
 * the logical union of the two optimality certificates.
 
-Proposition 4 is retained in the CSV output as a diagnostic.  Its success set
-must be contained in that of the positive certificate.
+The rank-one discrepancy certificate is retained in the CSV output as a
+diagnostic. Its success set must be contained in that of the positive
+certificate.
 
 Run the default experiment from the solver directory with
 
@@ -35,7 +36,10 @@ if str(SOLVER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SOLVER_DIRECTORY))
 
 import utils
-from certificates import positive_rank_one_certificate, proposition_4_certificate
+from certificates import (
+    positive_rank_one_certificate,
+    rank_one_discrepancy_certificate,
+)
 
 if __package__:
     from .simulate_all_near_certificates import (
@@ -78,7 +82,7 @@ class PositiveSimulationResult:
     tn_certificate_successes: int
     positive_certificate_successes: int
     either_certificate_successes: int
-    proposition_4_successes: int
+    rank_one_discrepancy_successes: int
     dominance_violations: int
 
     def rate(self, attribute):
@@ -155,7 +159,7 @@ def run_positive_simulation(config: PositiveSimulationConfig):
                 "tn": 0,
                 "positive": 0,
                 "either": 0,
-                "prop4": 0,
+                "discrepancy": 0,
                 "dominance_violations": 0,
             }
             for n in sample_sizes
@@ -211,7 +215,7 @@ def run_positive_simulation(config: PositiveSimulationConfig):
                     tn_result = solve_all_near_root(r, A, b)
                     tn_passes = tn_result.certified_global
                 positive_passes = positive_rank_one_certificate(A, b, r)
-                proposition_4_passes = proposition_4_certificate(A, b, r)
+                discrepancy_passes = rank_one_discrepancy_certificate(A, b, r)
 
                 if tn_passes:
                     counts[n]["tn"] += 1
@@ -219,9 +223,9 @@ def run_positive_simulation(config: PositiveSimulationConfig):
                     counts[n]["positive"] += 1
                 if tn_passes or positive_passes:
                     counts[n]["either"] += 1
-                if proposition_4_passes:
-                    counts[n]["prop4"] += 1
-                if proposition_4_passes and not positive_passes:
+                if discrepancy_passes:
+                    counts[n]["discrepancy"] += 1
+                if discrepancy_passes and not positive_passes:
                     counts[n]["dominance_violations"] += 1
 
         for n in sample_sizes:
@@ -237,7 +241,7 @@ def run_positive_simulation(config: PositiveSimulationConfig):
                     tn_certificate_successes=row["tn"],
                     positive_certificate_successes=row["positive"],
                     either_certificate_successes=row["either"],
-                    proposition_4_successes=row["prop4"],
+                    rank_one_discrepancy_successes=row["discrepancy"],
                     dominance_violations=row["dominance_violations"],
                 )
             )
@@ -256,7 +260,7 @@ def save_positive_results_csv(results_by_mode, output_path):
         "tn_certificate_successes",
         "positive_certificate_successes",
         "either_certificate_successes",
-        "proposition_4_successes",
+        "rank_one_discrepancy_successes",
         "dominance_violations",
     )
     with output_path.open("w", newline="", encoding="utf-8") as stream:
@@ -411,7 +415,8 @@ def main():
                 f"T_N<c0={100 * result.rate('tn_certificate_successes'):6.2f}%, "
                 f"positive={100 * result.rate('positive_certificate_successes'):6.2f}%, "
                 f"either={100 * result.rate('either_certificate_successes'):6.2f}%, "
-                f"Prop4={100 * result.rate('proposition_4_successes'):6.2f}%, "
+                "discrepancy="
+                f"{100 * result.rate('rank_one_discrepancy_successes'):6.2f}%, "
                 f"dominance violations={result.dominance_violations}"
             )
 

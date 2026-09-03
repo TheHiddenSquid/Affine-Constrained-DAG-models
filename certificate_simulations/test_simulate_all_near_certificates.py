@@ -14,11 +14,12 @@ if str(SOLVER_DIRECTORY) not in sys.path:
 from certificates import (
     C_0,
     S_0,
+    nonnegative_dual_certificate,
     positive_rank_one_certificate,
     projection_certificate,
     projection_likelihood_gap,
     projection_statistic,
-    proposition_4_certificate,
+    rank_one_discrepancy_certificate,
     s_certificate,
 )
 
@@ -34,30 +35,49 @@ else:
     )
 
 
-class Proposition4CertificateTests(unittest.TestCase):
+class RankOneDiscrepancyCertificateTests(unittest.TestCase):
     def test_accepts_when_the_discrepancy_is_below_the_active_minimum(self):
         self.assertTrue(
-            proposition_4_certificate([[1, -2]], [-1], [1.1, 0.9])
+            rank_one_discrepancy_certificate([[1, -2]], [-1], [1.1, 0.9])
         )
 
     def test_rejects_when_the_discrepancy_is_too_large(self):
-        self.assertFalse(proposition_4_certificate([[1]], [2], [0.5]))
+        self.assertFalse(rank_one_discrepancy_certificate([[1]], [2], [0.5]))
 
     def test_rejects_more_than_one_constraint_row(self):
         with self.assertRaisesRegex(ValueError, "exactly one constraint"):
-            proposition_4_certificate(np.eye(2), [1, 1], [1, 1])
+            rank_one_discrepancy_certificate(np.eye(2), [1, 1], [1, 1])
+
+
+class NonnegativeDualCertificateTests(unittest.TestCase):
+    def test_accepts_a_coordinatewise_nonnegative_dual_image(self):
+        A = np.array([[1.0, 0.0], [0.0, 2.0]])
+
+        self.assertTrue(nonnegative_dual_certificate(A, [0.5, 0.25]))
+
+    def test_rejects_a_negative_coordinate_in_the_dual_image(self):
+        self.assertFalse(nonnegative_dual_certificate([[1.0, -1.0]], [0.5]))
+
+    def test_allows_small_numerical_error(self):
+        self.assertTrue(
+            nonnegative_dual_certificate([[1.0]], [-1e-10], tolerance=1e-9)
+        )
+
+    def test_rejects_an_incompatible_multiplier_vector(self):
+        with self.assertRaisesRegex(ValueError, "same number of rows"):
+            nonnegative_dual_certificate(np.eye(2), [1.0])
 
 
 class PositiveRankOneCertificateTests(unittest.TestCase):
     def test_uses_the_sqrt_s_over_sqrt_s_plus_one_threshold(self):
         # For s=2 the threshold is approximately 0.5858.  This example also
-        # witnesses strict improvement over Proposition 4.
+        # witnesses strict improvement over the discrepancy certificate.
         A = np.array([[1.0, 1.0]])
         b = np.array([1.0])
         r = np.array([0.315, 0.315])
 
         self.assertTrue(positive_rank_one_certificate(A, b, r))
-        self.assertFalse(proposition_4_certificate(A, b, r))
+        self.assertFalse(rank_one_discrepancy_certificate(A, b, r))
 
     def test_rejects_below_the_positive_threshold(self):
         self.assertFalse(
@@ -129,7 +149,7 @@ class ResultsCsvTests(unittest.TestCase):
             ols_successes=10,
             strict_lp_successes=9,
             tn_certificate_successes=8,
-            proposition_4_successes=7,
+            rank_one_discrepancy_successes=7,
             either_certificate_successes=9,
             certificate_disagreements=1,
         )

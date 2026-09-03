@@ -39,7 +39,7 @@ if str(SOLVER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SOLVER_DIRECTORY))
 
 import utils
-from certificates import proposition_4_certificate
+from certificates import rank_one_discrepancy_certificate
 from solver import (
     compute_ols_estimates,
     solve_all_near_feasibility_lp,
@@ -70,7 +70,7 @@ class SimulationResult:
     ols_successes: int
     strict_lp_successes: int
     tn_certificate_successes: int
-    proposition_4_successes: Optional[int]
+    rank_one_discrepancy_successes: Optional[int]
     either_certificate_successes: int
     certificate_disagreements: Optional[int]
 
@@ -83,10 +83,10 @@ class SimulationResult:
         return self.tn_certificate_successes / self.trials
 
     @property
-    def proposition_4_rate(self):
-        if self.proposition_4_successes is None:
+    def rank_one_discrepancy_rate(self):
+        if self.rank_one_discrepancy_successes is None:
             return np.nan
-        return self.proposition_4_successes / self.trials
+        return self.rank_one_discrepancy_successes / self.trials
 
     @property
     def either_certificate_rate(self):
@@ -182,7 +182,7 @@ def run_simulation(config: SimulationConfig):
                 "ols": 0,
                 "lp": 0,
                 "tn": 0,
-                "prop4": 0,
+                "discrepancy": 0,
                 "either": 0,
                 "disagree": 0,
             }
@@ -244,18 +244,18 @@ def run_simulation(config: SimulationConfig):
                 if tn_passes:
                     counts[n]["tn"] += 1
 
-                # Proposition 4 applies directly only to the rank-one case.
+                # The discrepancy certificate applies only in the rank-one case.
                 if config.number_of_constraints == 1:
-                    proposition_4_passes = proposition_4_certificate(A, b, r)
-                    if proposition_4_passes:
-                        counts[n]["prop4"] += 1
-                    if tn_passes or proposition_4_passes:
+                    discrepancy_passes = rank_one_discrepancy_certificate(A, b, r)
+                    if discrepancy_passes:
+                        counts[n]["discrepancy"] += 1
+                    if tn_passes or discrepancy_passes:
                         counts[n]["either"] += 1
-                    if tn_passes != proposition_4_passes:
+                    if tn_passes != discrepancy_passes:
                         counts[n]["disagree"] += 1
                 elif tn_passes:
                     # The union reduces to the optimized all-near test when
-                    # Proposition 4 is not applicable.
+                    # the rank-one discrepancy certificate is not applicable.
                     counts[n]["either"] += 1
 
         for n in sample_sizes:
@@ -268,8 +268,8 @@ def run_simulation(config: SimulationConfig):
                     ols_successes=counts[n]["ols"],
                     strict_lp_successes=counts[n]["lp"],
                     tn_certificate_successes=counts[n]["tn"],
-                    proposition_4_successes=(
-                        counts[n]["prop4"]
+                    rank_one_discrepancy_successes=(
+                        counts[n]["discrepancy"]
                         if config.number_of_constraints == 1
                         else None
                     ),
@@ -303,8 +303,8 @@ def save_results_csv(results_by_mode, output_path):
                 "strict_lp_percent",
                 "tn_certificate_successes",
                 "tn_certificate_percent",
-                "proposition_4_successes",
-                "proposition_4_percent",
+                "rank_one_discrepancy_successes",
+                "rank_one_discrepancy_percent",
                 "either_certificate_successes",
                 "either_certificate_percent",
                 "certificate_disagreements",
@@ -324,8 +324,8 @@ def save_results_csv(results_by_mode, output_path):
                         f"{100.0 * result.strict_lp_rate:.6f}",
                         result.tn_certificate_successes,
                         f"{100.0 * result.tn_certificate_rate:.6f}",
-                        result.proposition_4_successes,
-                        f"{100.0 * result.proposition_4_rate:.6f}",
+                        result.rank_one_discrepancy_successes,
+                        f"{100.0 * result.rank_one_discrepancy_rate:.6f}",
                         result.either_certificate_successes,
                         f"{100.0 * result.either_certificate_rate:.6f}",
                         result.certificate_disagreements,
@@ -361,10 +361,10 @@ def plot_results(results_by_mode, output_path):
             "--",
         ),
         (
-            "Proposition 4",
+            "Rank-one discrepancy",
             "#77AC30",
             "^",
-            "proposition_4_successes",
+            "rank_one_discrepancy_successes",
             ":",
         ),
         (
@@ -475,7 +475,8 @@ def main():
                 f"graph={mode:>6}, p={result.p:>2}, n={result.n:>4}: "
                 f"LP={100 * result.strict_lp_rate:6.2f}%, "
                 f"T_N<c0={100 * result.tn_certificate_rate:6.2f}%, "
-                f"Prop4={100 * result.proposition_4_rate:6.2f}%, "
+                "discrepancy="
+                f"{100 * result.rank_one_discrepancy_rate:6.2f}%, "
                 f"either={100 * result.either_certificate_rate:6.2f}%, "
                 f"disagree="
                 f"{100 * result.certificate_disagreement_rate:6.2f}%"
