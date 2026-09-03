@@ -1,35 +1,36 @@
 import csv
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
 
+# Keep the test runnable both from the solver root and from this subdirectory.
+SOLVER_DIRECTORY = Path(__file__).resolve().parent.parent
+if str(SOLVER_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SOLVER_DIRECTORY))
+
+from certificates import (
+    C_0,
+    S_0,
+    positive_rank_one_certificate,
+    projection_certificate,
+    projection_likelihood_gap,
+    projection_statistic,
+    proposition_4_certificate,
+    s_certificate,
+)
+
 if __package__:
     from .simulate_all_near_certificates import (
-        C_0,
-        S_0,
-        positive_rank_one_certificate,
-        projection_certificate,
-        projection_likelihood_gap,
-        projection_statistic,
-        proposition_4_certificate,
         save_results_csv,
         SimulationResult,
-        s_certificate,
     )
 else:
     from simulate_all_near_certificates import (
-        C_0,
-        S_0,
-        positive_rank_one_certificate,
-        projection_certificate,
-        projection_likelihood_gap,
-        projection_statistic,
-        proposition_4_certificate,
         save_results_csv,
         SimulationResult,
-        s_certificate,
     )
 
 
