@@ -2,16 +2,30 @@ import unittest
 
 import numpy as np
 
+from constraint_components import decompose_affine_constraints
 from solver import (
     AllNearFeasibilityResult,
     AllNearRootResult,
     ComponentSolution,
     ConstrainedMLEResult,
     compute_ols_estimates,
+    is_positive_ray,
     prepare_solver_problem,
     solve_all_near_feasibility_lp,
     solve_all_near_root,
 )
+from utils import is_DAG
+
+
+class GraphUtilityTests(unittest.TestCase):
+    def test_recognizes_a_dag(self):
+        self.assertTrue(is_DAG(np.array([[0, 1], [0, 0]])))
+
+    def test_rejects_a_directed_cycle(self):
+        self.assertFalse(is_DAG(np.array([[0, 1], [1, 0]])))
+
+    def test_rejects_a_nonsquare_matrix(self):
+        self.assertFalse(is_DAG(np.zeros((2, 3))))
 
 
 class PrepareSolverProblemTests(unittest.TestCase):
@@ -91,6 +105,28 @@ class ResultDataclassTests(unittest.TestCase):
 
         self.assertTrue(result.certified_global)
         self.assertEqual(result.components[0].method, "partial-homoscedasticity")
+
+
+class PositiveRayTests(unittest.TestCase):
+    def test_recognizes_a_general_homogeneous_nullity_one_component(self):
+        component = decompose_affine_constraints(
+            [[1, -1, 0], [1, 0, -1]],
+            [0, 0],
+        )[0]
+
+        self.assertEqual(len(component.columns) - component.rank, 1)
+        self.assertTrue(is_positive_ray(component))
+
+    def test_rejects_an_affine_translate_of_a_ray(self):
+        component = decompose_affine_constraints([[1, 1]], [2])[0]
+
+        self.assertFalse(is_positive_ray(component))
+
+    def test_rejects_a_homogeneous_component_with_nullity_two(self):
+        component = decompose_affine_constraints([[1, 1, -2]], [0])[0]
+
+        self.assertEqual(len(component.columns) - component.rank, 2)
+        self.assertFalse(is_positive_ray(component))
 
 
 class ComputeOLSEstimatesTests(unittest.TestCase):
@@ -189,6 +225,7 @@ class SolveAllNearRootTests(unittest.TestCase):
         np.testing.assert_allclose(result.x, [1, 1], atol=1e-7)
         np.testing.assert_allclose(result.omega, [2.0, 2.8], atol=1e-7)
         np.testing.assert_allclose(np.array([[1, 1]]) @ result.omega, [4.8])
+        np.testing.assert_allclose(result.lagrange_multipliers, [0.0], atol=1e-7)
         self.assertTrue(result.certified_global)
 
     def test_recovers_partial_homoscedastic_solution(self):
@@ -197,15 +234,39 @@ class SolveAllNearRootTests(unittest.TestCase):
         np.testing.assert_allclose(result.omega, [2.4, 2.4], atol=1e-6)
         np.testing.assert_allclose(result.x, [1.2, 2.4 / 2.8], atol=1e-6)
 
+    def test_returns_multipliers_in_the_original_constraint_coordinates(self):
+        A = np.array([[1.0, 1.0]])
+        result = solve_all_near_root(self.r, A, [4.0])
+        C = A * self.r
+        gradient = 1.0 / result.x - 1.0 / result.x**2
+
+        self.assertEqual(result.lagrange_multipliers.shape, (1,))
+        np.testing.assert_allclose(
+            gradient + C.T @ result.lagrange_multipliers,
+            np.zeros(2),
+            atol=1e-5,
+        )
+
     def test_handles_redundant_constraint_rows(self):
         result = solve_all_near_root(
             self.r,
             [[1, 1], [2, 2]],
-            [4.8, 9.6],
+            [4.0, 8.0],
         )
 
-        np.testing.assert_allclose(result.omega, [2.0, 2.8], atol=1e-7)
+        np.testing.assert_allclose(
+            np.array([[1, 1], [2, 2]]) @ result.omega,
+            [4.0, 8.0],
+            atol=1e-7,
+        )
+        self.assertEqual(result.lagrange_multipliers.shape, (2,))
+        self.assertEqual(np.count_nonzero(result.lagrange_multipliers), 1)
         self.assertLess(result.constraint_violation, 1e-8)
+
+    def test_empty_constraint_system_returns_an_empty_multiplier_vector(self):
+        result = solve_all_near_root(self.r, np.empty((0, 2)), [])
+
+        self.assertEqual(result.lagrange_multipliers.shape, (0,))
 
     def test_rejects_a_constraint_without_a_strict_all_near_point(self):
         with self.assertRaisesRegex(ValueError, "no strictly all-near"):

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
-import sympy as sp
 from scipy.linalg import qr
 from scipy.optimize import Bounds, LinearConstraint, linprog, minimize
 
@@ -13,6 +12,7 @@ from constraint_components import (
     decompose_affine_constraints,
     unconstrained_columns,
 )
+from utils import is_DAG
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class ConstrainedMLEResult:
 
 @dataclass(frozen=True)
 class AllNearFeasibilityResult:
-    """Solution of the strict all-near feasibility LP from Section 6.1.
+    """Solution of the strict all-near feasibility LP from Section 7.1.
 
     ``status`` is one of ``"strict_feasible"``, ``"boundary_only"``, or
     ``"infeasible"``.  In the infeasible case, ``x``, ``omega``, and
@@ -83,28 +83,13 @@ class AllNearRootResult:
     residual_variances: np.ndarray
     x: np.ndarray
     omega: np.ndarray
+    lagrange_multipliers: np.ndarray
     objective_gap: float
     certified_global: bool
     iterations: int
     constraint_violation: float
     solver_status: int
     message: str
-
-
-def _is_dag(G):
-    """Check acyclicity by Kahn's topological-sort algorithm."""
-
-    indegree = np.count_nonzero(G, axis=0)
-    ready = list(np.flatnonzero(indegree == 0))
-    visited = 0
-    while ready:
-        node = ready.pop()
-        visited += 1
-        for child in np.flatnonzero(G[node]):
-            indegree[child] -= 1
-            if indegree[child] == 0:
-                ready.append(child)
-    return visited == G.shape[0]
 
 
 def _positive_feasibility_margin(A, b):
@@ -139,7 +124,7 @@ def _positive_feasibility_margin(A, b):
 
 
 def solve_all_near_feasibility_lp(A, b, r, tolerance=1e-9):
-    """Run the margin LP in Section 6.1 of the report.
+    """Run the margin LP in Section 7.1 of the report.
 
     For positive unconstrained residual variances ``r``, define
     ``D_r = diag(r)``, ``x = D_r^{-1} omega``, and ``C = A D_r``.  This
@@ -264,7 +249,7 @@ def prepare_solver_problem(X, G, A, b, feasibility_tolerance=1e-10):
         raise ValueError("G must be a binary adjacency matrix")
     if np.any(np.diag(G) != 0):
         raise ValueError("G must not contain self-loops")
-    if not _is_dag(G):
+    if not is_DAG(G):
         raise ValueError("G must represent a directed acyclic graph")
 
     A = np.asarray(A, dtype=float)
@@ -366,7 +351,11 @@ def solve_all_near_root(
 
     The returned point is the all-near optimizer whether or not
     ``certified_global`` is true.  The latter is true precisely when its gap is
-    below the universal far barrier ``log(2) - 1/2``.
+    below the universal far barrier ``log(2) - 1/2``.  The returned Lagrange
+    multipliers correspond to the original rows of ``A`` and use the sign
+    convention ``gradient(Psi)(x) + (A * r).T @ multipliers = 0`` at an
+    interior optimum.  Multipliers for redundant rows removed internally are
+    set to zero.
     """
 
     if solver_tolerance <= 0:
@@ -419,6 +408,7 @@ def solve_all_near_root(
     full_C = A * r
     C = full_C
     equality_rhs = b
+    independent_rows = np.arange(C.shape[0])
 
     # SLSQP is more reliable with redundant equality rows removed.  Since r is
     # strictly positive, C and A have the same row rank.
@@ -439,6 +429,7 @@ def solve_all_near_root(
             residual_variances=r,
             x=x,
             omega=r.copy(),
+            lagrange_multipliers=np.zeros(A.shape[0]),
             objective_gap=0.0,
             certified_global=True,
             iterations=0,
@@ -522,11 +513,25 @@ def solve_all_near_root(
     if np.any(x <= 0) or np.any(x > 2.0 + allowed_violation):
         raise RuntimeError("All-near optimizer violates its box constraints")
 
+    # Recover multipliers from stationarity on the independent, unnormalized
+    # constraint rows. A zero entry is used for every redundant input row,
+    # yielding a multiplier vector aligned with the original A and b.
+    independent_C = full_C[independent_rows]
+    gradient_at_solution = gradient(x)
+    reduced_multipliers, _, _, _ = np.linalg.lstsq(
+        independent_C.T,
+        -gradient_at_solution,
+        rcond=None,
+    )
+    lagrange_multipliers = np.zeros(A.shape[0])
+    lagrange_multipliers[independent_rows] = reduced_multipliers
+
     gap = objective(x)
     return AllNearRootResult(
         residual_variances=r,
         x=x,
         omega=r * x,
+        lagrange_multipliers=lagrange_multipliers,
         objective_gap=gap,
         certified_global=gap < np.log(2.0) - 0.5,
         iterations=int(optimization.nit),
@@ -536,19 +541,18 @@ def solve_all_near_root(
     )
 
 
-def is_homoscedastic(A, b):
-    """Recognize exact pairwise equality constraints in a reduced block."""
+def is_positive_ray(component: ConstraintComponent):
+    """Recognize a homogeneous component with one-dimensional kernel.
 
-    A = sp.Matrix(A)
-    b = sp.Matrix(b)
+    Positive feasibility is validated before components reach the constrained
+    solver.  Under that assumption, homogeneity and nullity one imply that the
+    component's positive feasible cone is a single ray.
+    """
+
     return (
-        all(sum(value != 0 for value in A.row(row)) == 2 for row in range(A.rows))
-        and all(sum(A.row(row)) == 0 for row in range(A.rows))
-        and all(value == 0 for value in b)
+        len(component.columns) - component.rank == 1
+        and all(value == 0 for value in component.c)
     )
-
-
-    
 
 
 def compute_constrained_MLE(X, G, A, b):
@@ -571,8 +575,8 @@ def compute_constrained_MLE(X, G, A, b):
         if q == component.rank:
             pass
 
-        elif is_homoscedastic(component.R, component.c):
-            #omega_hat[component.columns] = np.mean(r_hat[component.columns])
+        elif is_positive_ray(component):
+            # Apply the closed-form positive-ray solution from Proposition 3.
             pass
 
         elif component.rank == 1:

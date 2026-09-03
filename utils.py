@@ -71,18 +71,23 @@ def generate_lambda_matrix(adjacency_matrix, num_nodes):
 # Graph functions
 
 def is_DAG(A):
-    numnodes = A.shape[0]
-    if numnodes < 8:
-        P = A
-    else:
-        P = A.astype(np.float32)
-    power = 1
-    while power < numnodes:
-        P = P @ P
-        power *= 2
-    if np.argmax(P) != 0:
+    """Return whether an adjacency matrix represents a directed acyclic graph."""
+
+    A = np.asarray(A)
+    if A.ndim != 2 or A.shape[0] != A.shape[1]:
         return False
-    return not P[0,0]
+
+    indegree = np.count_nonzero(A, axis=0)
+    ready = list(np.flatnonzero(indegree == 0))
+    visited = 0
+    while ready:
+        node = ready.pop()
+        visited += 1
+        for child in np.flatnonzero(A[node]):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                ready.append(child)
+    return visited == A.shape[0]
 
 def get_log_lik(X, Lam, Omega):
     p, n = X.shape
@@ -93,4 +98,3 @@ def get_log_lik(X, Lam, Omega):
 
     likelihood = n/2 * (-math.log(np.prod(Omega))+2*math.log(np.linalg.det(tmp))-np.trace(tmp @ inv_omega @ tmp.T @ S))
     return likelihood
-
